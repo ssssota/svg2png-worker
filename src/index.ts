@@ -1,32 +1,25 @@
 import {
+  ConverterOptions,
   ConvertOptions,
-  createSvg2png,
-  DefaultFontFamily,
-} from 'svg2png-wasm/core';
+  initialize,
+  svg2png,
+} from 'svg2png-wasm';
+import marked from 'marked';
 import wasm from './svg2png_wasm_bg.wasm';
 import roboto from './Roboto-Thin.ttf';
-
-const svg2png = createSvg2png(wasm);
-const fonts = [new Uint8Array(roboto)];
-const defaultFontFamily: DefaultFontFamily = {
-  sansSerifFamily: 'Roboto Thin',
-  serifFamily: 'Roboto Thin',
-  cursiveFamily: 'Roboto Thin',
-  fantasyFamily: 'Roboto Thin',
-  monospaceFamily: 'Roboto Thin',
-};
 
 const getOptionsFromUrl = (url: string): ConvertOptions => {
   try {
     const { searchParams } = new URL(url);
     const scale = Number(searchParams.get('svg2png-scale')) || 1;
-    return { scale };
+    const backgroundColor = searchParams.get('svg2png-background') || undefined;
+    return { scale, backgroundColor };
   } catch (e) {
     return {};
   }
 };
 
-const getSvgUrl = (source: string): string | Response => {
+const getSvgUrl = (source: string): string | undefined => {
   try {
     const { href, origin } = new URL(source);
     const svgPath = new URL(
@@ -34,9 +27,7 @@ const getSvgUrl = (source: string): string | Response => {
     );
     return svgPath.toString();
   } catch (e) {
-    return new Response('Invalid URL', {
-      status: 400,
-    });
+    return undefined;
   }
 };
 
@@ -50,36 +41,39 @@ const fetchSvg = async (svgUrl: string): Promise<string | Response> => {
       statusText: response.statusText,
     });
   } catch (e) {
-    return new Response(`${e}`, {
-      status: 500,
-    });
+    return new Response(`${e}`, { status: 500 });
   }
 };
 
-const main = async (req: Request): Promise<Response> => {
+const handleRequest = async (req: Request): Promise<Response> => {
   try {
-    const options = getOptionsFromUrl(req.url);
-    const svgPath = getSvgUrl(req.url);
-    if (svgPath instanceof Response) return svgPath;
+    const svgUrl = getSvgUrl(req.url);
+    if (svgUrl === undefined) {
+      return new Response(marked(process.env.README ?? ''), {
+        headers: { 'content-type': 'text/html' },
+      });
+    }
 
-    const svg = await fetchSvg(svgPath);
+    const svg = await fetchSvg(svgUrl);
     if (svg instanceof Response) return svg;
 
-    const buf = await svg2png(svg, {
-      ...options,
-      fonts,
-      defaultFontFamily,
-    });
-    return new Response(buf, {
-      headers: {
-        'content-type': 'image/png',
+    await initialize(wasm).catch(() => {});
+    const options: ConverterOptions & ConvertOptions = {
+      ...getOptionsFromUrl(req.url),
+      fonts: await Promise.all([new Uint8Array(roboto)]),
+      defaultFontFamily: {
+        sansSerifFamily: 'Roboto',
+        serifFamily: 'Roboto',
+        cursiveFamily: 'Roboto',
+        fantasyFamily: 'Roboto',
+        monospaceFamily: 'Roboto',
       },
-    });
+    };
+
+    const buf = await svg2png(svg, options);
+    return new Response(buf, { headers: { 'content-type': 'image/png' } });
   } catch (e) {
-    return new Response(`${e}`, {
-      status: 500,
-    });
+    return new Response(`${e}`, { status: 500 });
   }
 };
-
-export default { fetch: main };
+export default { fetch: handleRequest };

@@ -1,27 +1,9 @@
 import { nodeResolve } from '@rollup/plugin-node-resolve';
 import typescript from '@rollup/plugin-typescript';
-import { createFilter } from '@rollup/pluginutils';
-import { readFileSync, realpathSync } from 'fs';
 import { defineConfig } from 'rollup';
 import copy from 'rollup-plugin-copy';
-
-/**
- * @param {{ include: import('@rollup/pluginutils').FilterPattern, exclude?: import('@rollup/pluginutils').FilterPattern }} options
- * @returns {{ name: string, load: (id: string) => string}}
- */
-const raw = (options = {}) => {
-  const filter = createFilter(options.include, options.exclude);
-  return {
-    name: 'raw',
-    load(id) {
-      if (!filter(id)) return;
-      const path = realpathSync(id);
-      const base64 = readFileSync(path).toString('base64');
-      const code = `const raw = Uint8Array.from(atob('${base64}'), c => c.charCodeAt(0)); export default raw;`;
-      return { code };
-    },
-  };
-};
+import replace from '@rollup/plugin-replace';
+import { readFileSync } from 'fs';
 
 const config = defineConfig({
   input: 'src/index.ts',
@@ -30,12 +12,15 @@ const config = defineConfig({
     format: 'esm',
   },
   plugins: [
+    replace({
+      'process.env.README': JSON.stringify(readFileSync('README.md', 'utf8')),
+    }),
     nodeResolve(),
     typescript(),
     copy({
       targets: [
         {
-          src: 'src/svg2png_wasm_bg.wasm',
+          src: 'node_modules/svg2png-wasm/svg2png_wasm_bg.wasm',
           dest: 'dist',
         },
         {
